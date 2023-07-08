@@ -1,0 +1,138 @@
+import React, { useEffect, useState } from "react";
+import JsSIP from "jssip";
+
+const Notes = () => {
+  const [ua, setUA] = useState(null);
+  const [session, setSession] = useState(null);
+  const [showIncomingCallPopup, setShowIncomingCallPopup] = useState(false);
+  useEffect(() => {
+    // Configure jsSIP
+    const socket = new JsSIP.WebSocketInterface(
+      "wss://app.aakashtel.com:7443/ws"
+    );
+    const configuration = {
+      sockets: [socket],
+      uri: "sip:203@app.aakashtel.com",
+      password: "12345678",
+    };
+
+    // Create and start the User Agent
+    const userAgent = new JsSIP.UA(configuration);
+    setUA(userAgent);
+    userAgent.start();
+
+    // Event listeners
+    userAgent.on("connected", () => console.log("Connected to SIP server"));
+    userAgent.on("disconnected", () =>
+      console.log("Disconnected from SIP server")
+    );
+    userAgent.on("registered", () => console.log("Registered with SIP server"));
+    userAgent.on("unregistered", () =>
+      console.log("Unregistered from SIP server")
+    );
+    userAgent.on("registrationFailed", (e) =>
+      console.log("Registration failed:", e.cause)
+    );
+    userAgent.on("newRTCSession", (e) => handleNewRTCSession(e.session));
+
+    return () => {
+      if (ua) {
+        ua.stop();
+      }
+    };
+  }, []);
+
+  const handleNewRTCSession = (newSession) => {
+    if (session) {
+      // Reject the incoming call if there is an ongoing call
+      newSession.terminate();
+      return;
+    }
+
+    setSession(newSession);
+
+    if (newSession.direction === "incoming") {
+      console.log(
+        "Incoming call from:",
+        newSession.remote_identity.display_name
+      );
+      setSession(newSession);
+      setShowIncomingCallPopup(true);
+    }
+
+    newSession.on("accepted", (e) => {
+      console.log("Call accepted", e);
+      setShowIncomingCallPopup(false);
+    });
+    newSession.on("ended", (e) => {
+      console.log("Call ended:", e.cause);
+      setSession(null);
+      setShowIncomingCallPopup(false);
+    });
+    newSession.on("failed", (e) => {
+      console.log("Call failed:", e.cause);
+      setSession(null);
+      setShowIncomingCallPopup(false);
+    });
+  };
+
+  const makeCall = () => {
+    if (session) {
+      return;
+    }
+
+    const destination = "sip:131@app.aakashtel.com";
+    const options = {
+      mediaConstraints: { audio: true, video: false },
+      pcConfig: {
+        iceServers: [
+          { urls: ["stun:stun.l.google.com:19302"] },
+          { urls: ["stun:stun1.l.google.com:19302"] },
+        ],
+      },
+    };
+
+    const callSession = ua.call(destination, options);
+    setSession(callSession);
+  };
+
+  const hangUp = () => {
+    if (session) {
+      session.terminate();
+    }
+  };
+  const acceptCall = () => {
+    if (session) {
+      session.answer();
+    }
+  };
+
+  const rejectCall = () => {
+    if (session) {
+      session.terminate();
+      setSession(null);
+      setShowIncomingCallPopup(false);
+    }
+  };
+  return (
+    <div>
+      <h1>Voice Call Demo</h1>
+      <button onClick={makeCall} disabled={session !== null}>
+        Call
+      </button>
+      <button onClick={hangUp} disabled={session === null}>
+        Hang Up
+      </button>
+      {showIncomingCallPopup && (
+        <div className="incoming-call-popup">
+          <h2>Incoming Call</h2>
+          <p>From: {session ? session.remote_identity.display_name : ""}</p>
+          <button onClick={acceptCall}>Accept</button>
+          <button onClick={rejectCall}>Reject</button>
+        </div>
+      )}
+    </div>
+  );
+};
+
+export default Notes;
